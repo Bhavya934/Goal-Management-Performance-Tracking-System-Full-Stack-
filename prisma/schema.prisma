@@ -1,0 +1,183 @@
+// AtomQuest Goals - Prisma Schema
+// Database: PostgreSQL (Supabase / Neon / Vercel Postgres)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Users ───────────────────────────────────────────────────────
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  password      String
+  role          String   @default("EMPLOYEE") // EMPLOYEE, MANAGER, ADMIN
+  managerId     String?
+  manager       User?    @relation("ManagerEmployee", fields: [managerId], references: [id])
+  employees     User[]   @relation("ManagerEmployee")
+  department    String   @default("Engineering")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  goals           Goal[]
+  approvalsMade   GoalApproval[]   @relation("Reviewer")
+  sharedGoalsCreated SharedGoal[]  @relation("SharedGoalCreator")
+  checkIns        CheckIn[]
+  auditLogs       AuditLog[]
+  commentsMade    CheckInComment[] @relation("Commenter")
+
+  @@map("users")
+}
+
+// ─── Goal Cycles ─────────────────────────────────────────────────
+model GoalCycle {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  goals Goal[]
+
+  @@map("goal_cycles")
+}
+
+// ─── Goals ───────────────────────────────────────────────────────
+model Goal {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cycleId     String?
+  cycle       GoalCycle? @relation(fields: [cycleId], references: [id])
+  
+  thrustArea  String
+  title       String
+  description String
+  uom         String   // NUMERIC_HIGHER, NUMERIC_LOWER, PERCENTAGE, TIMELINE, ZERO_BASED
+  target      Float
+  weightage   Float    // percentage, min 10%
+  
+  status      String   @default("DRAFT") // DRAFT, PENDING_APPROVAL, APPROVED, RETURNED, LOCKED
+  isLocked    Boolean  @default(false)
+  
+  // Shared goal reference
+  sharedGoalId String?
+  sharedGoal   SharedGoal? @relation(fields: [sharedGoalId], references: [id])
+  
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  approvals  GoalApproval[]
+  checkIns   CheckIn[]
+  auditLogs  AuditLog[]
+
+  @@index([userId])
+  @@index([sharedGoalId])
+  @@map("goals")
+}
+
+// ─── Shared Goals ────────────────────────────────────────────────
+model SharedGoal {
+  id          String   @id @default(cuid())
+  createdById String
+  createdBy   User     @relation("SharedGoalCreator", fields: [createdById], references: [id])
+  
+  thrustArea  String
+  title       String
+  description String
+  uom         String
+  target      Float
+  
+  achievement Float?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  goals Goal[]
+
+  @@map("shared_goals")
+}
+
+// ─── Goal Approvals ──────────────────────────────────────────────
+model GoalApproval {
+  id           String   @id @default(cuid())
+  goalId       String
+  goal         Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  reviewedById String
+  reviewedBy   User     @relation("Reviewer", fields: [reviewedById], references: [id])
+  
+  action       String   @default("PENDING") // PENDING, APPROVED, RETURNED
+  comment      String?
+  
+  createdAt    DateTime @default(now())
+
+  @@index([goalId])
+  @@map("goal_approvals")
+}
+
+// ─── Check-Ins ───────────────────────────────────────────────────
+model CheckIn {
+  id              String   @id @default(cuid())
+  goalId          String
+  goal            Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  
+  quarter         String   // Q1, Q2, Q3, Q4
+  achievement     Float
+  status          String   @default("NOT_STARTED") // NOT_STARTED, ON_TRACK, AT_RISK, COMPLETED
+  progressPercent Float    @default(0)
+  notes           String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  comments CheckInComment[]
+
+  @@unique([goalId, quarter])
+  @@index([goalId])
+  @@map("check_ins")
+}
+
+// ─── Check-In Comments ───────────────────────────────────────────
+model CheckInComment {
+  id        String   @id @default(cuid())
+  checkInId String
+  checkIn   CheckIn  @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("Commenter", fields: [userId], references: [id])
+  
+  content   String
+  createdAt DateTime @default(now())
+
+  @@map("check_in_comments")
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────
+model AuditLog {
+  id        String   @id @default(cuid())
+  goalId    String
+  goal      Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  action    String
+  field     String?
+  oldValue  String?
+  newValue  String?
+  
+  createdAt DateTime @default(now())
+
+  @@index([goalId])
+  @@map("audit_logs")
+}
